@@ -1,8 +1,21 @@
-// Test with: gcc simple_exec.c -DTEST_EXEC_MAIN -g && valgrind --track-fds=yes ./a.out
-// Will show one child process with leaks - that's fine, it's what happens if you try to run an executable
-// that doesn't exist - it returns an error on a special error pipe and immediately exits.
+// simple_exec.h, single header library to run external programs + retrieve their status code and output (unix only for now)
+//
+// do this:
+// #define SIMPLE_EXEC_IMPLEMENTATION
+//   before you include this file in *one* C or C++ file to create the implementation.
+// i.e. it should look like this:
+// #define SIMPLE_EXEC_IMPLEMENTATION
+// #include "simple_exec.h"
 
-// adapted from: https://stackoverflow.com/a/479103
+#ifndef SIMPLE_EXEC_H
+#define SIMPLE_EXEC_H
+
+int runCommand(char** stdOut, int* stdOutByteCount, int* returnCode, int includeStdErr, char* command, ...);
+int runCommandArray(char** stdOut, int* stdOutByteCount, int* returnCode, int includeStdErr, char* const* allArgs);
+
+#endif // SIMPLE_EXEC_H
+
+#ifdef SIMPLE_EXEC_IMPLEMENTATION
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +24,7 @@
 #include <assert.h>
 #include <sys/wait.h>
 #include <stdarg.h>
+#include <fcntl.h>
 
 enum PIPE_FILE_DESCRIPTORS
 {
@@ -24,8 +38,10 @@ enum RUN_COMMAND_ERROR
     COMMAND_NOT_FOUND = 1
 };
 
-int runCommandArray(char** stdOut, int* stdOutByteCount, int* returnCode, char* const* allArgs)
+int runCommandArray(char** stdOut, int* stdOutByteCount, int* returnCode, int includeStdErr, char* const* allArgs)
 {
+    // adapted from: https://stackoverflow.com/a/479103
+
     int bufferSize = 256;
     char buffer[bufferSize + 1];
 
@@ -56,7 +72,16 @@ int runCommandArray(char** stdOut, int* stdOutByteCount, int* returnCode, char* 
         {
             assert(dup2(parentToChild[READ_FD ], STDIN_FILENO ) != -1);
             assert(dup2(childToParent[WRITE_FD], STDOUT_FILENO) != -1);
-            assert(dup2(childToParent[WRITE_FD], STDERR_FILENO) != -1);
+            
+            if(includeStdErr)
+            {
+                assert(dup2(childToParent[WRITE_FD], STDERR_FILENO) != -1);
+            }
+            else
+            {
+                int devNull = open("/dev/null", O_WRONLY);
+                assert(dup2(devNull, STDERR_FILENO) != -1);
+            }
 
             // unused
             assert(close(parentToChild[WRITE_FD]) == 0);
@@ -147,7 +172,7 @@ int runCommandArray(char** stdOut, int* stdOutByteCount, int* returnCode, char* 
     }
 }
 
-int runCommand(char** stdOut, int* stdOutByteCount, int* returnCode, char* command, ...)
+int runCommand(char** stdOut, int* stdOutByteCount, int* returnCode, int includeStdErr, char* command, ...)
 {
     va_list vl;
     va_start(vl, command);
@@ -177,30 +202,9 @@ int runCommand(char** stdOut, int* stdOutByteCount, int* returnCode, char* comma
 
     va_end(vl);
 
-    int retval = runCommandArray(stdOut, stdOutByteCount, returnCode, allArgs);
+    int retval = runCommandArray(stdOut, stdOutByteCount, returnCode, includeStdErr, allArgs);
     free(allArgs);
     return retval;
 }
 
-#ifdef TEST_EXEC_MAIN
-int main(int argc, char** argv)
-{
-    // get stdout, and return code
-    char* stdOut = NULL;
-    int byteCount = 0;
-    int exitCode = 0;
-    int err = runCommand(&stdOut, &byteCount, &exitCode, "ls", "-l", (char*)NULL);
-    assert(err == COMMAND_RAN_OK); // doesn't mean the command succeeded, just that invoking it didn't fail
-    printf("EXIT CODE: %d, STDOUT SIZE: %d bytes, STDOUT: %s", exitCode, byteCount, stdOut);
-    free(stdOut);
-
-    // or don't
-    runCommand(NULL, NULL, NULL, "touch", "blah", (char*)NULL); 
-    
-    // This will show leaks in valgrind - see comment at top of file
-    err = runCommand(NULL, NULL, NULL, "thisCommandDoesntExist", (char*)NULL);
-    assert(err == COMMAND_NOT_FOUND);
-
-    return 0;
-}
-#endif
+#endif //SIMPLE_EXEC_IMPLEMENTATION
