@@ -26,6 +26,8 @@ int runCommandArray(char** stdOut, int* stdOutByteCount, int* returnCode, int in
 #include <stdarg.h>
 #include <fcntl.h>
 
+#define release_assert(x) do { int __release_assert_tmp__ = (x); assert(__release_assert_tmp__); } while(0)
+
 enum PIPE_FILE_DESCRIPTORS
 {
   READ_FD  = 0,
@@ -52,41 +54,41 @@ int runCommandArray(char** stdOut, int* stdOutByteCount, int* returnCode, int in
 
 
     int parentToChild[2];
-    assert(pipe(parentToChild) == 0);
+    release_assert(pipe(parentToChild) == 0);
 
     int childToParent[2];
-    assert(pipe(childToParent) == 0);
+    release_assert(pipe(childToParent) == 0);
 
     int errPipe[2];
-    assert(pipe(errPipe) == 0);
+    release_assert(pipe(errPipe) == 0);
 
     pid_t pid;
     switch( pid = fork() )
     {
         case -1:
         {
-            assert(0 && "Fork failed");
+            release_assert(0 && "Fork failed");
         }
 
         case 0: // child
         {
-            assert(dup2(parentToChild[READ_FD ], STDIN_FILENO ) != -1);
-            assert(dup2(childToParent[WRITE_FD], STDOUT_FILENO) != -1);
+            release_assert(dup2(parentToChild[READ_FD ], STDIN_FILENO ) != -1);
+            release_assert(dup2(childToParent[WRITE_FD], STDOUT_FILENO) != -1);
             
             if(includeStdErr)
             {
-                assert(dup2(childToParent[WRITE_FD], STDERR_FILENO) != -1);
+                release_assert(dup2(childToParent[WRITE_FD], STDERR_FILENO) != -1);
             }
             else
             {
                 int devNull = open("/dev/null", O_WRONLY);
-                assert(dup2(devNull, STDERR_FILENO) != -1);
+                release_assert(dup2(devNull, STDERR_FILENO) != -1);
             }
 
             // unused
-            assert(close(parentToChild[WRITE_FD]) == 0);
-            assert(close(childToParent[READ_FD ]) == 0);
-            assert(close(errPipe[READ_FD]) == 0);
+            release_assert(close(parentToChild[WRITE_FD]) == 0);
+            release_assert(close(childToParent[READ_FD ]) == 0);
+            release_assert(close(errPipe[READ_FD]) == 0);
             
             const char* command = allArgs[0];
             execvp(command, allArgs);
@@ -105,9 +107,9 @@ int runCommandArray(char** stdOut, int* stdOutByteCount, int* returnCode, int in
         default: // parent
         {
             // unused
-            assert(close(parentToChild[READ_FD]) == 0);
-            assert(close(childToParent[WRITE_FD]) == 0);
-            assert(close(errPipe[WRITE_FD]) == 0);
+            release_assert(close(parentToChild[READ_FD]) == 0);
+            release_assert(close(childToParent[WRITE_FD]) == 0);
+            release_assert(close(errPipe[WRITE_FD]) == 0);
 
             while(1)
             {
@@ -117,11 +119,11 @@ int runCommandArray(char** stdOut, int* stdOutByteCount, int* returnCode, int in
                     case 0: // End-of-File, or non-blocking read.
                     {
                         int status = 0;
-                        assert(waitpid(pid, &status, 0) == pid);
+                        release_assert(waitpid(pid, &status, 0) == pid);
 
                         // done with these now
-                        assert(close(parentToChild[WRITE_FD]) == 0);
-                        assert(close(childToParent[READ_FD]) == 0);
+                        release_assert(close(parentToChild[WRITE_FD]) == 0);
+                        release_assert(close(childToParent[READ_FD]) == 0);
 
                         char errChar = 0;
                         read(errPipe[READ_FD], &errChar, 1);
@@ -151,7 +153,7 @@ int runCommandArray(char** stdOut, int* stdOutByteCount, int* returnCode, int in
                     }
                     case -1:
                     {
-                        assert(0 && "read() failed");
+                        release_assert(0 && "read() failed");
                     }
 
                     default:
